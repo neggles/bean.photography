@@ -1,0 +1,26 @@
+{
+  "name": "kframe-io",
+  "version": "0.0.1",
+  "description": "a website",
+  "type": "module",
+  "scripts": {
+    "build": "gulp",
+    "preview": "gulp && wrangler pages dev",
+    "deploy": "wrangler pages deploy",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "GPL-3.0-only",
+  "dependencies": {
+    "del": "^7.1.0",
+    "esm": "^3.2.25",
+    "gulp": "^5.0.0",
+    "gulp-dart-sass": "^1.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240909.0",
+    "prettier": "^3.3.3",
+    "prettier-package-json": "^2.8.0",
+    "wrangler": "^3.76.0"
+  }
+}
