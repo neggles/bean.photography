@@ -1,13 +1,34 @@
 {
     "editor.formatOnSave": true,
     "editor.formatOnSaveMode": "file",
+    "prettier.printWidth": 100,
+    "prettier.tabWidth": 4,
+    "prettier.singleQuote": false,
+    "prettier.trailingComma": "all",
 
     "[json]": {
         "editor.formatOnSave": true,
         "editor.formatOnSaveMode": "file",
         "editor.detectIndentation": false,
         "editor.tabSize": 2,
+        "prettier.tabWidth": 2,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[jsonc]": {
+        "editor.formatOnSave": true,
+        "editor.formatOnSaveMode": "file",
+        "editor.detectIndentation": false,
+        "editor.tabSize": 4,
         "editor.defaultFormatter": "vscode.json-language-features"
+    },
+
+    "[javascript]": {
+        "editor.formatOnSave": true,
+        "editor.formatOnSaveMode": "file",
+        "editor.detectIndentation": false,
+        "editor.tabSize": 4,
+        "prettier.tabWidth": 4,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
 
     "[css]": {
@@ -15,6 +36,7 @@
         "editor.formatOnSaveMode": "file",
         "editor.detectIndentation": false,
         "editor.tabSize": 2,
+        "prettier.tabWidth": 2,
         "editor.defaultFormatter": "vscode.css-language-features"
     },
     "css.format.newlineBetweenSelectors": false,
@@ -25,6 +47,7 @@
         "editor.formatOnSaveMode": "file",
         "editor.detectIndentation": false,
         "editor.tabSize": 2,
+        "prettier.tabWidth": 2,
         "editor.defaultFormatter": "sibiraj-s.vscode-scss-formatter"
     },
     "scss.format.newlineBetweenSelectors": false,
