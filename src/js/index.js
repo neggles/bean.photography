@@ -1,26 +1,23 @@
-const beans = [
-    "/beans/bean1.png",
-    "/beans/bean2.png",
-    "/beans/bean3.png",
-    "/beans/bean4.png",
-    "/beans/bean5.png",
-    "/beans/bean6.png",
-    "/beans/bean7.png",
-];
-const special_bean = "/beans/beanlet.png";
+import beans from "./beans.js";
+const special_bean = `/beans/beanlet.png`;
 
+// get URL parameters
+const params = new URLSearchParams(window.location.search);
+// get local storage
 const storage = window.localStorage;
 
 // track last bean so we don't repeat it
 let lastBean = storage.getItem("lastBean");
+// we'll store the bean bounding box here once it's computed
+var beanBbox = null;
 
 // track page load count
 let loadCount = parseInt(storage.getItem("loadCount") || "0", 10);
 loadCount += 1;
 storage.setItem("loadCount", loadCount.toString());
 
+// generate a random integer between min and max, inclusive. assumes integer inputs
 function randInt(min, max) {
-    // inclusive of both min and max; assumes integer inputs
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
@@ -28,16 +25,16 @@ function randInt(min, max) {
 function pickBeanSrc() {
     if (randInt(0, 69) === 69 || loadCount === 42) {
         console.info("You found the special bean! 🎉");
-        // reset load count
-        storage.setItem("loadCount", "0");
-        storage.setItem("lastBean", special_bean);
+        storage.setItem("loadCount", "0"); // reset load count
+        storage.setItem("lastBean", special_bean); // set last bean to special bean
         return special_bean;
     } else {
         let bean;
         do {
             bean = beans[randInt(0, beans.length - 1)];
-        } while (bean === lastBean && beans.length > 1);
-        storage.setItem("lastBean", bean);
+        } while (bean === lastBean);
+        lastBean = bean;
+        storage.setItem("lastBean", lastBean);
         return bean;
     }
 }
@@ -58,6 +55,7 @@ function getBeanImage(cb) {
     return img;
 }
 
+// get bounding box of non-transparent pixels in a canvas context
 function getBoundingBox(ctx, width, height) {
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
@@ -91,16 +89,10 @@ function getBoundingBox(ctx, width, height) {
     ++right;
     ++bottom;
 
-    return {
-        left: left,
-        top: top,
-        right: right,
-        bottom: bottom,
-        width: right - left,
-        height: bottom - top,
-    };
+    return { left: left, top: top, right: right, bottom: bottom };
 }
 
+// get bounding box of non-transparent pixels in an image
 function getImageBbox(image) {
     const canvas = document.createElement("canvas");
     canvas.width = image.naturalWidth || image.width;
@@ -114,21 +106,18 @@ function getImageBbox(image) {
     return getBoundingBox(ctx, canvas.width, canvas.height);
 }
 
-// constants
-const params = new URLSearchParams(window.location.search);
-let beanBbox = null;
-
+// load the bean image and compute its bounding box once loaded
 /** @type {HTMLImageElement} **/
 const bean = getBeanImage((img) => {
     beanBbox = getImageBbox(img);
     if (beanBbox) {
-        console.log("Bean bounding box:", beanBbox);
+        console.debug("Bean bounding box:", beanBbox);
     } else {
-        console.log("Could not determine bean bounding box");
+        console.warn("Could not determine bean bounding box");
     }
 });
 
-// helpers
+// parse speed parameter from URL, defaulting to 1.0 if invalid
 function parseSpeed(searchParams) {
     const raw = searchParams.get("speed");
     const n = raw === null ? NaN : parseFloat(raw);
@@ -136,23 +125,14 @@ function parseSpeed(searchParams) {
 }
 
 class PageEffects {
-    xpos;
-    ypos;
-    rect;
-    dvd;
-    dvdframe;
-    parent;
-    speed;
-    dir;
-
     constructor(parent) {
         /** @type {HTMLElement} **/
         this.parent = typeof parent === "string" ? document.querySelector(parent) : parent;
         if (!this.parent) throw new Error("Parent not found");
 
         // ensure initial position is within the window bounds
-        this.xpos = randInt(1, window.innerWidth - 1);
-        this.ypos = randInt(1, window.innerHeight - 1);
+        this.xpos = randInt(1, window.innerWidth - 512 - 1);
+        this.ypos = randInt(1, window.innerHeight - 512 - 1);
 
         this.dvd = {};
         this.dvdframe = undefined;
@@ -224,11 +204,11 @@ class PageEffects {
 
         // check if logo is bouncing on the left/right side
         if (leftEdge <= 1) this.dir.x = 1;
-        else if (rightEdge + 1 >= this.rect.width) this.dir.x = -1;
+        else if (rightEdge + 1 >= canvas.width) this.dir.x = -1;
 
         // check if logo is bouncing on the top/bottom side
         if (topEdge <= 1) this.dir.y = 1;
-        else if (bottomEdge + 1 >= this.rect.height) this.dir.y = -1;
+        else if (bottomEdge + 1 >= canvas.height) this.dir.y = -1;
 
         // update position for next frame
         this.xpos += this.speed * this.dir.x;
@@ -236,4 +216,7 @@ class PageEffects {
     }
 }
 
+// how to tell jshint this is used?
 const pageEffects = new PageEffects("div.screen");
+
+export { pageEffects };

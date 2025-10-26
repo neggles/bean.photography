@@ -2,8 +2,11 @@ import { exec } from "child_process";
 import { deleteAsync } from "del";
 import { dest, lastRun, parallel, series, src, watch } from "gulp";
 import concat from "gulp-concat";
+import cssnano from "gulp-cssnano";
 import gulpSass from "gulp-sass";
 import terser from "gulp-terser";
+import fs from "node:fs";
+import path from "node:path";
 import { Transform } from "node:stream";
 import * as dartSass from "sass";
 const sass = gulpSass(dartSass);
@@ -12,18 +15,7 @@ const sass = gulpSass(dartSass);
 const isProduction = process.env.NODE_ENV === "production";
 let isWatching = false;
 
-// Return a no-op transform that simply passes Vinyl files through unchanged
-function noopPlugin() {
-    return new Transform({
-        objectMode: true,
-        transform(chunk, enc, cb) {
-            cb(null, chunk);
-        },
-    });
-}
-
-// Unified minify wrapper: always pipe through a stream; when disabled, it's a no-op
-
+// File paths
 const paths = {
     assets: {
         src: "src/assets/*",
@@ -36,6 +28,7 @@ const paths = {
     beans: {
         src: "src/beans/*",
         dest: "dist/",
+        base: "/beans",
     },
     styles: {
         src: ["src/**/*.css", "src/**/*.scss"],
@@ -51,6 +44,56 @@ const paths = {
     },
 };
 
+// Return a no-op transform that simply passes Vinyl files through unchanged
+function noopPlugin() {
+    return new Transform({
+        objectMode: true,
+        transform(file, _enc, cb) {
+            cb(null, file);
+        },
+    });
+}
+
+// bean list generation func
+function beanListWriter({ outDir, outFile, exclude = [] }) {
+    const picked = [];
+    const block = new Set(Array.isArray(exclude) ? exclude : [exclude]);
+
+    return new Transform({
+        objectMode: true,
+        transform(file, _, cb) {
+            // pass vinyl file through unchanged so gulp can keep doing what it's doing
+            if (file && file.path) {
+                const name = path.basename(file.path);
+                if (!block.has(name)) picked.push(name);
+            }
+            cb(null, file);
+        },
+        final(cb) {
+            try {
+                // deterministic builds, because chaos is for prod only
+                picked.sort((a, b) =>
+                    a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }),
+                );
+                fs.mkdirSync(outDir, { recursive: true });
+                const contents =
+                    `// auto-generated. do not edit by hand unless you enjoy suffering immensely\n` +
+                    `export const beanDir = ${JSON.stringify(paths.beans.base)};\n` +
+                    `export const beanFiles = ${JSON.stringify(picked, null, 4)};\n` +
+                    `export const beans = beanFiles.map(f => beanDir + '/' + f);\n` +
+                    `export default beans;\n`;
+                fs.writeFileSync(path.join(outDir, outFile), contents, "utf8");
+                console.info(
+                    `beanListWriter: wrote ${outDir + outFile} with ${picked.length} entries`,
+                );
+                cb();
+            } catch (err) {
+                cb(err);
+            }
+        },
+    });
+}
+
 export const clean = () => deleteAsync("dist/**", { force: true });
 
 export function assets() {
@@ -61,9 +104,15 @@ export function assets() {
 }
 
 export function beans() {
-    return src(paths.beans.src, { encoding: false, since: lastRun(beans), base: "src" }).pipe(
-        dest(paths.beans.dest),
-    );
+    return src(paths.beans.src, { encoding: false, since: lastRun(beans), base: "src" })
+        .pipe(
+            beanListWriter({
+                outDir: paths.scripts.dest,
+                outFile: "beans.js",
+                exclude: ["beanlet.png"],
+            }),
+        )
+        .pipe(dest(paths.beans.dest));
 }
 
 export function scripts() {
@@ -72,11 +121,7 @@ export function scripts() {
         if (!enabled) return noopPlugin();
         return terser({
             ecma: 2020,
-            compress: {
-                ecma: 2020,
-                passes: 2,
-                drop_debugger: true,
-            },
+            compress: { ecma: 2020, passes: 2, drop_debugger: true },
             keep_fnames: true,
             keep_classnames: true,
             mangle: { safari10: true },
@@ -91,9 +136,16 @@ export function scripts() {
 }
 
 export function styles() {
+    const shouldMinify = isProduction && !isWatching;
+    function minifyWrapper(enabled) {
+        if (!enabled) return noopPlugin();
+        return cssnano();
+    }
+
     return src(paths.styles.src, { since: lastRun(styles), sourcemaps: true })
         .pipe(sass({ outputStyle: "nested" }).on("error", sass.logError))
         .pipe(concat("styles.css"))
+        .pipe(minifyWrapper(shouldMinify))
         .pipe(dest(paths.styles.dest, { sourcemaps: "." }));
 }
 
