@@ -51,5 +51,6 @@
         "editor.defaultFormatter": "sibiraj-s.vscode-scss-formatter"
     },
     "scss.format.newlineBetweenSelectors": false,
-    "scss.format.spaceAroundSelectorSeparator": true
+    "scss.format.spaceAroundSelectorSeparator": true,
+    "sarif-viewer.connectToGithubCodeScanning": "off"
 }
