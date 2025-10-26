@@ -9,16 +9,35 @@ const beans = [
 ];
 const special_bean = "/beans/beanlet.png";
 
+const storage = window.localStorage;
+
+// track last bean so we don't repeat it
+let lastBean = storage.getItem("lastBean");
+
+// track page load count
+let loadCount = parseInt(storage.getItem("loadCount") || "0", 10);
+loadCount += 1;
+storage.setItem("loadCount", loadCount.toString());
+
 function randInt(min, max) {
     return Math.floor(Math.random() * (Math.floor(max) - Math.ceil(min) + 1)) + min;
 }
 
+// pick a bean image source URL based on some conditions. is only expected to be called once per page load.
 function pickBeanSrc() {
-    if (randInt(0, 69) === 69) {
+    if (randInt(0, 69) === 69 || loadCount === 42) {
         console.info("You found the special bean! 🎉");
+        // reset load count
+        storage.setItem("loadCount", "0");
+        storage.setItem("lastBean", special_bean);
         return special_bean;
     } else {
-        return beans[randInt(0, beans.length - 1)];
+        let bean;
+        do {
+            bean = beans[randInt(0, beans.length - 1)];
+        } while (bean === lastBean && beans.length > 1);
+        storage.setItem("lastBean", bean);
+        return bean;
     }
 }
 

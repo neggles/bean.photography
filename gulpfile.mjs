@@ -51,13 +51,11 @@ export function beans() {
 }
 
 export function scripts() {
-    return (
-        src(paths.scripts.src, { since: lastRun(scripts), sourcemaps: true })
-            .pipe(dest(paths.scripts.dest))
-            .pipe(concat("index.js"))
-            // .pipe(uglify())
-            .pipe(dest(paths.scripts.dest, { sourcemaps: "." }))
-    );
+    return src(paths.scripts.src, { since: lastRun(scripts), sourcemaps: true })
+        .pipe(dest(paths.scripts.dest))
+        .pipe(concat("index.js"))
+        .pipe(uglify())
+        .pipe(dest(paths.scripts.dest, { sourcemaps: "." }));
 }
 
 export function styles() {
