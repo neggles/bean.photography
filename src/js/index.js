@@ -20,7 +20,8 @@ loadCount += 1;
 storage.setItem("loadCount", loadCount.toString());
 
 function randInt(min, max) {
-    return Math.floor(Math.random() * (Math.floor(max) - Math.ceil(min) + 1)) + min;
+    // inclusive of both min and max; assumes integer inputs
+    return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 // pick a bean image source URL based on some conditions. is only expected to be called once per page load.
@@ -53,8 +54,6 @@ function getBeanImage(cb) {
     img.addEventListener("error", (e) => {
         console.error("Failed to load bean image:", img.src, e);
     });
-    img.style.display = "none";
-    img.style.position = "absolute";
     img.src = pickBeanSrc();
     return img;
 }
@@ -118,7 +117,6 @@ function getImageBbox(image) {
 // constants
 const params = new URLSearchParams(window.location.search);
 let beanBbox = null;
-let speed = 1.0;
 
 /** @type {HTMLImageElement} **/
 const bean = getBeanImage((img) => {
@@ -128,15 +126,13 @@ const bean = getBeanImage((img) => {
     } else {
         console.log("Could not determine bean bounding box");
     }
-    // speed in pixels per frame
-    pageEffects.speed = parseFloat(params.get("speed")) || 1.0;
 });
 
-// variables
-let direction = { x: randInt(0, 1) === 0 ? -1 : 1, y: randInt(0, 1) === 0 ? -1 : 1 };
-
-function changeDirection(axis, value) {
-    direction[axis] = value;
+// helpers
+function parseSpeed(searchParams) {
+    const raw = searchParams.get("speed");
+    const n = raw === null ? NaN : parseFloat(raw);
+    return Number.isFinite(n) ? n : 1.0; // default 1.0 px/frame
 }
 
 class PageEffects {
@@ -147,15 +143,12 @@ class PageEffects {
     dvdframe;
     parent;
     speed;
-    events = {};
+    dir;
 
     constructor(parent) {
         /** @type {HTMLElement} **/
         this.parent = typeof parent === "string" ? document.querySelector(parent) : parent;
         if (!this.parent) throw new Error("Parent not found");
-
-        // event handlers
-        this.events = { resize: this.onResize.bind(this) };
 
         // ensure initial position is within the window bounds
         this.xpos = randInt(1, window.innerWidth - 1);
@@ -163,15 +156,16 @@ class PageEffects {
 
         this.dvd = {};
         this.dvdframe = undefined;
-        this.speed = 1.0;
+        this.speed = parseSpeed(params);
+        this.dir = { x: randInt(0, 1) === 0 ? -1 : 1, y: randInt(0, 1) === 0 ? -1 : 1 };
 
-        window.addEventListener("resize", this.events.resize, false);
+        window.addEventListener("resize", this.onResize.bind(this), false);
 
         this.onResize();
         this.initDVD();
     }
 
-    onResize(e) {
+    onResize() {
         this.rect = { width: window.innerWidth, height: window.innerHeight };
         this.initDVD(); // reinitialize DVD effect on resize
     }
@@ -179,7 +173,7 @@ class PageEffects {
     // DVD Screensaver Effect
     initDVD() {
         if (this.dvdframe !== undefined) {
-            window.cancelAnimationFrame(this.dvd.frame);
+            window.cancelAnimationFrame(this.dvdframe);
             this.dvdframe = undefined;
         }
 
@@ -198,7 +192,7 @@ class PageEffects {
 
         canvas.width = this.rect.width;
         canvas.height = this.rect.height;
-        this.dvd = { canvas: canvas, ctx: ctx, isize: null, bbox: null };
+        this.dvd = { canvas: canvas, ctx: ctx };
 
         const animate = () => {
             this.renderDVD();
@@ -208,9 +202,8 @@ class PageEffects {
     }
 
     renderDVD() {
-        // early out if bean image is not loaded yet
-
-        if (!bean) return;
+        // early out if bean image is not available (shouldn't happen) or bbox is not ready yet
+        if (!bean || !beanBbox) return;
 
         /** @type {HTMLCanvasElement} **/
         const canvas = this.dvd.canvas;
@@ -222,27 +215,25 @@ class PageEffects {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(bean, this.xpos, this.ypos);
 
-        if (beanBbox) {
-            const margin = 32;
+        const margin = 32;
 
-            const leftEdge = this.xpos + beanBbox.left + margin;
-            const rightEdge = this.xpos + beanBbox.right - margin;
-            const topEdge = this.ypos + beanBbox.top + margin;
-            const bottomEdge = this.ypos + beanBbox.bottom - margin;
+        const leftEdge = this.xpos + beanBbox.left + margin;
+        const rightEdge = this.xpos + beanBbox.right - margin;
+        const topEdge = this.ypos + beanBbox.top + margin;
+        const bottomEdge = this.ypos + beanBbox.bottom - margin;
 
-            // check if logo is bouncing on the left/right side
-            if (leftEdge <= 1) changeDirection("x", 1);
-            else if (rightEdge + 1 >= this.rect.width) changeDirection("x", -1);
+        // check if logo is bouncing on the left/right side
+        if (leftEdge <= 1) this.dir.x = 1;
+        else if (rightEdge + 1 >= this.rect.width) this.dir.x = -1;
 
-            // check if logo is bouncing on the top/bottom side
-            if (topEdge <= 1) changeDirection("y", 1);
-            else if (bottomEdge + 1 >= this.rect.height) changeDirection("y", -1);
+        // check if logo is bouncing on the top/bottom side
+        if (topEdge <= 1) this.dir.y = 1;
+        else if (bottomEdge + 1 >= this.rect.height) this.dir.y = -1;
 
-            // update position, we'll write the image in its new position in the next frame
-            this.xpos += this.speed * direction.x;
-            this.ypos += this.speed * direction.y;
-        }
+        // update position for next frame
+        this.xpos += this.speed * this.dir.x;
+        this.ypos += this.speed * this.dir.y;
     }
 }
 
-var pageEffects = new PageEffects("div.screen");
+const pageEffects = new PageEffects("div.screen");

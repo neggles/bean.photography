@@ -3,21 +3,38 @@ import { deleteAsync } from "del";
 import { dest, lastRun, parallel, series, src, watch } from "gulp";
 import concat from "gulp-concat";
 import gulpSass from "gulp-sass";
-import uglify from "gulp-uglify";
+import terser from "gulp-terser";
+import { Transform } from "node:stream";
 import * as dartSass from "sass";
 const sass = gulpSass(dartSass);
+
+// Build flags
+const isProduction = process.env.NODE_ENV === "production";
+let isWatching = false;
+
+// Return a no-op transform that simply passes Vinyl files through unchanged
+function noopPlugin() {
+    return new Transform({
+        objectMode: true,
+        transform(chunk, enc, cb) {
+            cb(null, chunk);
+        },
+    });
+}
+
+// Unified minify wrapper: always pipe through a stream; when disabled, it's a no-op
 
 const paths = {
     assets: {
         src: "src/assets/*",
         dest: "dist/",
     },
-    beans: {
-        src: "src/beans/*",
-        dest: "dist/",
-    },
     favicon: {
         src: "src/assets/favicon.*",
+        // uses assets.dest as destination
+    },
+    beans: {
+        src: "src/beans/*",
         dest: "dist/",
     },
     styles: {
@@ -37,11 +54,10 @@ const paths = {
 export const clean = () => deleteAsync("dist/**", { force: true });
 
 export function assets() {
-    return src(paths.assets.src, { encoding: false }).pipe(dest(paths.assets.dest));
-}
-
-export function favicon() {
-    return src(paths.favicon.src, { encoding: false }).pipe(dest(paths.favicon.dest));
+    return src([paths.assets.src, paths.favicon.src], {
+        encoding: false,
+        since: lastRun(assets),
+    }).pipe(dest(paths.assets.dest));
 }
 
 export function beans() {
@@ -51,10 +67,26 @@ export function beans() {
 }
 
 export function scripts() {
+    const shouldMinify = isProduction && !isWatching;
+    function minifyWrapper(enabled) {
+        if (!enabled) return noopPlugin();
+        return terser({
+            ecma: 2020,
+            compress: {
+                ecma: 2020,
+                passes: 2,
+                drop_debugger: true,
+            },
+            keep_fnames: true,
+            keep_classnames: true,
+            mangle: { safari10: true },
+            format: { comments: false },
+        });
+    }
+
     return src(paths.scripts.src, { since: lastRun(scripts), sourcemaps: true })
-        .pipe(dest(paths.scripts.dest))
         .pipe(concat("index.js"))
-        .pipe(uglify())
+        .pipe(minifyWrapper(shouldMinify))
         .pipe(dest(paths.scripts.dest, { sourcemaps: "." }));
 }
 
@@ -74,6 +106,7 @@ export function serve() {
 }
 
 function watchFiles() {
+    isWatching = true;
     clean();
     build();
     watch(paths.assets.src, assets);
