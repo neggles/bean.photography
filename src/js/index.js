@@ -8,9 +8,6 @@ const storage = window.localStorage;
 
 // track last bean so we don't repeat it
 let lastBean = storage.getItem("lastBean");
-// we'll store the bean bounding box here once it's computed
-var beanBbox = null;
-
 // track page load count
 let loadCount = parseInt(storage.getItem("loadCount") || "0", 10);
 loadCount += 1;
@@ -51,6 +48,8 @@ function getBeanImage(cb) {
     img.addEventListener("error", (e) => {
         console.error("Failed to load bean image:", img.src, e);
     });
+    img.id = "bean-image";
+    img.style.display = "none";
     img.src = pickBeanSrc();
     return img;
 }
@@ -106,15 +105,16 @@ function getImageBbox(image) {
     return getBoundingBox(ctx, canvas.width, canvas.height);
 }
 
+// we'll store the bean bounding box here once it's computed
+var beanBbox = null;
 // load the bean image and compute its bounding box once loaded
 /** @type {HTMLImageElement} **/
 const bean = getBeanImage((img) => {
     beanBbox = getImageBbox(img);
-    if (beanBbox) {
-        console.debug("Bean bounding box:", beanBbox);
-    } else {
-        console.warn("Could not determine bean bounding box");
-    }
+    if (beanBbox) console.debug("Bean bounding box:", beanBbox);
+    else console.warn("Could not determine bean bounds");
+    // notify page effects that the bean is ready
+    beansaver.onResize();
 });
 
 // parse speed parameter from URL, defaulting to 1.0 if invalid
@@ -124,11 +124,14 @@ function parseSpeed(searchParams) {
     return Number.isFinite(n) ? n : 1.0; // default 1.0 px/frame
 }
 
-class PageEffects {
-    constructor(parent) {
+class DVDScreensaver {
+    constructor(parent, canvasId) {
         /** @type {HTMLElement} **/
         this.parent = typeof parent === "string" ? document.querySelector(parent) : parent;
         if (!this.parent) throw new Error("Parent not found");
+        this.canvasId = canvasId || "dvd";
+        // attach bean image to parent element
+        this.parent.appendChild(bean);
 
         // ensure initial position is within the window bounds
         this.xpos = randInt(1, window.innerWidth - 512 - 1);
@@ -139,28 +142,40 @@ class PageEffects {
         this.speed = parseSpeed(params);
         this.dir = { x: randInt(0, 1) === 0 ? -1 : 1, y: randInt(0, 1) === 0 ? -1 : 1 };
 
-        window.addEventListener("resize", this.onResize.bind(this), false);
-
+        window.addEventListener("resize", this.onResize.bind(this));
+        window.addEventListener("orientationchange", this.onResize.bind(this));
+        window.addEventListener("load", this.onResize.bind(this));
         this.onResize();
-        this.initDVD();
     }
 
     onResize() {
-        this.rect = { width: window.innerWidth, height: window.innerHeight };
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        if (bean && (bean.naturalHeight > height || bean.naturalWidth > width)) {
+            this.rect = {
+                width: Math.floor(width * 2),
+                height: Math.floor(height * 2),
+            };
+        } else {
+            this.rect = { width: width, height: height };
+        }
+
         this.initDVD(); // reinitialize DVD effect on resize
     }
 
     // DVD Screensaver Effect
     initDVD() {
+        // cancel any existing animation frame
         if (this.dvdframe !== undefined) {
             window.cancelAnimationFrame(this.dvdframe);
             this.dvdframe = undefined;
         }
 
         /** @type {HTMLCanvasElement} **/
-        const canvas = document.getElementById("dvd");
+        const canvas = document.getElementById(this.canvasId);
         if (!canvas) {
-            console.error("DVD canvas not found");
+            console.error("Bean canvas not found");
             return;
         }
         /** @type {CanvasRenderingContext2D} **/
@@ -172,7 +187,7 @@ class PageEffects {
 
         canvas.width = this.rect.width;
         canvas.height = this.rect.height;
-        this.dvd = { canvas: canvas, ctx: ctx };
+        this.dvd = { canvas: canvas, ctx: ctx, scale: 1.0, margin: 32 };
 
         const animate = () => {
             this.renderDVD();
@@ -182,41 +197,46 @@ class PageEffects {
     }
 
     renderDVD() {
-        // early out if bean image is not available (shouldn't happen) or bbox is not ready yet
-        if (!bean || !beanBbox) return;
-
         /** @type {HTMLCanvasElement} **/
         const canvas = this.dvd.canvas;
         /** @type {CanvasRenderingContext2D} **/
         const ctx = this.dvd.ctx;
-        if (!ctx) return;
+        /** @type {integer} **/
+        const margin = this.dvd.margin;
 
-        // clear canvas and draw bean at current position
+        // fail gracefully if bean or context not ready
+        if (!bean || !ctx || !beanBbox) return;
+
+        // clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(bean, this.xpos, this.ypos);
 
-        const margin = 32;
-
-        const leftEdge = this.xpos + beanBbox.left + margin;
+        const leftEdge = this.xpos + beanBbox.left;
         const rightEdge = this.xpos + beanBbox.right - margin;
         const topEdge = this.ypos + beanBbox.top + margin;
         const bottomEdge = this.ypos + beanBbox.bottom - margin;
 
         // check if logo is bouncing on the left/right side
-        if (leftEdge <= 1) this.dir.x = 1;
-        else if (rightEdge + 1 >= canvas.width) this.dir.x = -1;
+        if (leftEdge <= -margin) this.dir.x = 1;
+        else if (rightEdge + margin >= canvas.width) this.dir.x = -1;
 
         // check if logo is bouncing on the top/bottom side
-        if (topEdge <= 1) this.dir.y = 1;
-        else if (bottomEdge + 1 >= canvas.height) this.dir.y = -1;
+        if (topEdge <= -margin) this.dir.y = 1;
+        else if (bottomEdge + margin >= canvas.height) this.dir.y = -1;
 
-        // update position for next frame
+        // clamp bottomEdge to below the top of the canvas
+        if (bottomEdge < 0) this.ypos = -beanBbox.bottom;
+        else if (topEdge > canvas.height) this.ypos = canvas.height;
+        // clamp rightEdge to left of the canvas
+        if (rightEdge < 0) this.xpos = -beanBbox.right;
+        else if (leftEdge > canvas.width) this.xpos = canvas.width;
+
+        // update position
         this.xpos += this.speed * this.dir.x;
         this.ypos += this.speed * this.dir.y;
+        // draw the bean image
+        ctx.drawImage(bean, this.xpos, this.ypos);
     }
 }
 
 // how to tell jshint this is used?
-const pageEffects = new PageEffects("div.screen");
-
-export { pageEffects };
+window.beansaver = new DVDScreensaver("div.screen", "bean");
