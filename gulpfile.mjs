@@ -52,7 +52,6 @@ const terserOptions = {
     keep_classnames: true,
     mangle: { safari10: true },
     format: { comments: false },
-    output: { comments: false },
 };
 
 // Initialize sass compiler
