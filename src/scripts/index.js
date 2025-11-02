@@ -1,5 +1,8 @@
 import beans from "./beans.js";
-const special_bean = `/beans/beanlet.png`;
+import fireworks from "./fireworks.js";
+
+// get special bean
+const special_bean = beans.special_bean;
 
 // get URL parameters
 const params = new URLSearchParams(window.location.search);
@@ -88,7 +91,14 @@ function getBoundingBox(ctx, width, height) {
     ++right;
     ++bottom;
 
-    return { left: left, top: top, right: right, bottom: bottom };
+    return {
+        left: left,
+        top: top,
+        right: right,
+        bottom: bottom,
+        width: right - left,
+        height: bottom - top,
+    };
 }
 
 // get bounding box of non-transparent pixels in an image
@@ -106,12 +116,13 @@ function getImageBbox(image) {
 }
 
 // we'll store the bean bounding box here once it's computed
-var beanBbox = null;
+var beanBox = null;
 // load the bean image and compute its bounding box once loaded
 /** @type {HTMLImageElement} **/
 const bean = getBeanImage((img) => {
-    beanBbox = getImageBbox(img);
-    if (beanBbox) console.debug("Bean bounding box:", beanBbox);
+    beanBox = getImageBbox(img);
+    // log the bean bounding box for debugging purposes
+    if (beanBox) console.debug("Bean bounding box:", beanBox);
     else console.warn("Could not determine bean bounds");
     // notify page effects that the bean is ready
     beansaver.onResize();
@@ -123,6 +134,7 @@ function parseSpeed(searchParams) {
     const n = raw === null ? NaN : parseFloat(raw);
     return Number.isFinite(n) ? n : 1.0; // default 1.0 px/frame
 }
+const speedParam = parseSpeed(params);
 
 class DVDScreensaver {
     constructor(parent, canvasId) {
@@ -130,6 +142,7 @@ class DVDScreensaver {
         this.parent = typeof parent === "string" ? document.querySelector(parent) : parent;
         if (!this.parent) throw new Error("Parent not found");
         this.canvasId = canvasId || "dvd";
+
         // attach bean image to parent element
         this.parent.appendChild(bean);
 
@@ -137,31 +150,42 @@ class DVDScreensaver {
         this.xpos = randInt(1, window.innerWidth - 512 - 1);
         this.ypos = randInt(1, window.innerHeight - 512 - 1);
 
+        // set initial speed
+        this.speed = speedParam;
+        // distance past edges before bouncing
+        this.margin = 32 * devicePixelRatio;
+
+        // DVD effect state
         this.dvd = {};
+        // animation frame handle
         this.dvdframe = undefined;
-        this.speed = parseSpeed(params);
+
+        // initial direction
         this.dir = { x: randInt(0, 1) === 0 ? -1 : 1, y: randInt(0, 1) === 0 ? -1 : 1 };
 
+        // bind event handlers and call for initial setup
         window.addEventListener("resize", this.onResize.bind(this));
         window.addEventListener("orientationchange", this.onResize.bind(this));
         window.addEventListener("load", this.onResize.bind(this));
-        this.onResize();
     }
 
     onResize() {
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+        // get new canvas size in device pixels
+        const widthPx = window.innerWidth * devicePixelRatio;
+        const heightPx = window.innerHeight * devicePixelRatio;
 
-        if (bean && (bean.naturalHeight > height || bean.naturalWidth > width)) {
-            this.rect = {
-                width: Math.floor(width * 2),
-                height: Math.floor(height * 2),
-            };
+        // adjust canvas size for displays which don't report devicePixelRatio correctly
+        if (bean && (bean.naturalHeight > heightPx || bean.naturalWidth > widthPx)) {
+            this.rect = { width: Math.floor(widthPx * 2), height: Math.floor(heightPx * 2) };
         } else {
-            this.rect = { width: width, height: height };
+            this.rect = { width: widthPx, height: heightPx };
         }
 
-        this.initDVD(); // reinitialize DVD effect on resize
+        // adjust speed for devicePixelRatio
+        this.speed = speedParam * (devicePixelRatio || 1);
+
+        // reinitialize animation
+        this.initDVD();
     }
 
     // DVD Screensaver Effect
@@ -173,21 +197,21 @@ class DVDScreensaver {
         }
 
         /** @type {HTMLCanvasElement} **/
-        const canvas = document.getElementById(this.canvasId);
-        if (!canvas) {
+        this.canvas = document.querySelector(`canvas#${this.canvasId}`);
+        if (!this.canvas) {
             console.error("Bean canvas not found");
             return;
         }
         /** @type {CanvasRenderingContext2D} **/
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) {
+        this.ctx = this.canvas.getContext("2d", { willReadFrequently: true });
+        if (!this.ctx) {
             console.error("DVD canvas context not found");
             return;
         }
 
-        canvas.width = this.rect.width;
-        canvas.height = this.rect.height;
-        this.dvd = { canvas: canvas, ctx: ctx, scale: 1.0, margin: 32 };
+        // set canvas size
+        this.canvas.width = this.rect.width;
+        this.canvas.height = this.rect.height;
 
         const animate = () => {
             this.renderDVD();
@@ -198,37 +222,61 @@ class DVDScreensaver {
 
     renderDVD() {
         /** @type {HTMLCanvasElement} **/
-        const canvas = this.dvd.canvas;
+        const canvas = this.canvas;
+        if (!canvas) return;
         /** @type {CanvasRenderingContext2D} **/
-        const ctx = this.dvd.ctx;
-        /** @type {integer} **/
-        const margin = this.dvd.margin;
+        const ctx = this.ctx;
+        if (!ctx) return;
 
         // fail gracefully if bean or context not ready
-        if (!bean || !ctx || !beanBbox) return;
+        if (!bean || !beanBox) return;
 
         // clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const leftEdge = this.xpos + beanBbox.left;
-        const rightEdge = this.xpos + beanBbox.right - margin;
-        const topEdge = this.ypos + beanBbox.top + margin;
-        const bottomEdge = this.ypos + beanBbox.bottom - margin;
+        let effect = { xpos: null, ypos: null, direction: null };
 
-        // check if logo is bouncing on the left/right side
-        if (leftEdge <= -margin) this.dir.x = 1;
-        else if (rightEdge + margin >= canvas.width) this.dir.x = -1;
+        const left = this.xpos + beanBox.left;
+        const right = this.xpos + beanBox.right;
+        const top = this.ypos + beanBox.top;
+        const bottom = this.ypos + beanBox.bottom;
 
-        // check if logo is bouncing on the top/bottom side
-        if (topEdge <= -margin) this.dir.y = 1;
-        else if (bottomEdge + margin >= canvas.height) this.dir.y = -1;
+        // check for left/right bounce
+        if (left <= -this.margin) {
+            this.dir.x = 1;
+            // calculate collision point for fireworks
+            effect.xpos = left;
+            effect.direction = "right";
+        } else if (right >= canvas.width + this.margin) {
+            this.dir.x = -1;
+            // calculate collision point for fireworks
+            effect.xpos = right;
+            effect.direction = "left";
+        }
+        // check for top/bottom bounce
+        if (top <= -this.margin) {
+            this.dir.y = 1;
+            effect.ypos = top;
+            effect.direction = "down";
+        } else if (bottom >= canvas.height + this.margin) {
+            this.dir.y = -1;
+            effect.ypos = bottom;
+            effect.direction = "up";
+        }
 
-        // clamp bottomEdge to below the top of the canvas
-        if (bottomEdge < 0) this.ypos = -beanBbox.bottom;
-        else if (topEdge > canvas.height) this.ypos = canvas.height;
-        // clamp rightEdge to left of the canvas
-        if (rightEdge < 0) this.xpos = -beanBbox.right;
-        else if (leftEdge > canvas.width) this.xpos = canvas.width;
+        if (effect.xpos !== null || effect.ypos !== null) {
+            effect.ypos ??= this.ypos + (beanBox.top + beanBox.bottom) / 2;
+            effect.xpos ??= this.xpos + (beanBox.left + beanBox.right) / 2;
+            fireworks(effect.xpos, effect.ypos, effect.direction);
+        }
+
+        // check for left/right overshoot and correct position
+        if (left + beanBox.width < 0) this.xpos = -beanBox.left;
+        else if (right - beanBox.width > canvas.width) this.xpos = canvas.width - beanBox.right;
+        // check for top/bottom overshoot and correct position
+        if (top + beanBox.height < 0) this.ypos = -beanBox.top;
+        else if (bottom - beanBox.height > canvas.height)
+            this.ypos = canvas.height - beanBox.bottom;
 
         // update position
         this.xpos += this.speed * this.dir.x;
@@ -238,5 +286,16 @@ class DVDScreensaver {
     }
 }
 
-// how to tell jshint this is used?
 window.beansaver = new DVDScreensaver("div.screen", "bean");
+/*
+const fireworks = new Fireworks("div.screen", "fireworks");
+if (fireworks) {
+    window.fireworks = fireworks;
+    window.addEventListener("click", (e) => {
+        fireworks.updateCoords(e);
+        fireworks.animateParticles(fireworks.pointerX, fireworks.pointerY);
+    });
+} else {
+    console.error("Fireworks initialization failed");
+}
+*/

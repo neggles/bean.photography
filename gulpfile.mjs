@@ -3,13 +3,14 @@ import { deleteAsync } from "del";
 import { dest, lastRun, parallel, series, src, watch } from "gulp";
 import concat from "gulp-concat";
 import cssnano from "gulp-cssnano";
+import rename from "gulp-rename";
 import gulpSass from "gulp-sass";
 import terser from "gulp-terser";
+import log from "gulplog";
 import fs from "node:fs";
 import path from "node:path";
 import { Transform } from "node:stream";
 import * as dartSass from "sass";
-const sass = gulpSass(dartSass);
 
 // Build flags
 const isProduction = process.env.NODE_ENV === "production";
@@ -22,20 +23,20 @@ const paths = {
         dest: "dist/",
     },
     favicon: {
-        src: "src/assets/favicon.*",
-        // uses assets.dest as destination
+        src: "src/favicon.*",
+        dest: "dist/",
     },
     beans: {
         src: "src/beans/*",
         dest: "dist/",
-        base: "/beans",
+        subDir: "/beans",
     },
     styles: {
-        src: ["src/**/*.css", "src/**/*.scss"],
+        src: ["src/styles/*.css", "src/**/*.scss"],
         dest: "dist/",
     },
     scripts: {
-        src: "src/**/*.js",
+        src: ["src/scripts/*.js", "src/scripts/*.jsm"],
         dest: "dist/",
     },
     html: {
@@ -43,6 +44,19 @@ const paths = {
         dest: "dist/",
     },
 };
+
+const terserOptions = {
+    ecma: 2020,
+    compress: { ecma: 2020, passes: 2, drop_debugger: true },
+    keep_fnames: true,
+    keep_classnames: true,
+    mangle: { safari10: true },
+    format: { comments: false },
+    output: { comments: false },
+};
+
+// Initialize sass compiler
+const sass = gulpSass(dartSass);
 
 // Return a no-op transform that simply passes Vinyl files through unchanged
 function noopPlugin() {
@@ -77,15 +91,13 @@ function beanListWriter({ outDir, outFile, exclude = [] }) {
                 );
                 fs.mkdirSync(outDir, { recursive: true });
                 const contents =
-                    `// auto-generated. do not edit by hand unless you enjoy suffering immensely\n` +
-                    `export const beanDir = ${JSON.stringify(paths.beans.base)};\n` +
-                    `export const beanFiles = ${JSON.stringify(picked, null, 4)};\n` +
-                    `export const beans = beanFiles.map(f => beanDir + '/' + f);\n` +
-                    `export default beans;\n`;
+                    `// auto-generated. do not edit by hand unless you enjoy suffering\n`
+                    + `export const beanDir = ${JSON.stringify(paths.beans.subDir)};\n`
+                    + `export const beanFiles = ${JSON.stringify(picked, null, 4)};\n`
+                    + `export const beans = beanFiles.map(f => beanDir + '/' + f);\n`
+                    + `export default beans;\n`;
                 fs.writeFileSync(path.join(outDir, outFile), contents, "utf8");
-                console.info(
-                    `beanListWriter: wrote ${outDir + outFile} with ${picked.length} entries`,
-                );
+                log.info(`beanListWriter: wrote ${outDir + outFile} with ${picked.length} entries`);
                 cb();
             } catch (err) {
                 cb(err);
@@ -97,10 +109,11 @@ function beanListWriter({ outDir, outFile, exclude = [] }) {
 export const clean = () => deleteAsync("dist/**", { force: true });
 
 export function assets() {
-    return src([paths.assets.src, paths.favicon.src], {
-        encoding: false,
-        since: lastRun(assets),
-    }).pipe(dest(paths.assets.dest));
+    return src(paths.assets.src, { encoding: false }).pipe(dest(paths.assets.dest));
+}
+
+export function favicon() {
+    return src(paths.favicon.src, { encoding: false }).pipe(dest(paths.assets.dest));
 }
 
 export function beans() {
@@ -119,20 +132,12 @@ export function scripts() {
     const shouldMinify = isProduction && !isWatching;
     function minifyWrapper(enabled) {
         if (!enabled) return noopPlugin();
-        return terser({
-            ecma: 2020,
-            compress: { ecma: 2020, passes: 2, drop_debugger: true },
-            keep_fnames: true,
-            keep_classnames: true,
-            mangle: { safari10: true },
-            format: { comments: false },
-        });
+        return terser(terserOptions);
     }
 
-    return src(paths.scripts.src, { since: lastRun(scripts), sourcemaps: true })
-        .pipe(concat("index.js"))
+    return src(paths.scripts.src, { sourcemaps: true })
         .pipe(minifyWrapper(shouldMinify))
-        .pipe(dest(paths.scripts.dest, { sourcemaps: "." }));
+        .pipe(dest(paths.scripts.dest, { sourcemaps: true }));
 }
 
 export function styles() {
@@ -142,7 +147,7 @@ export function styles() {
         return cssnano();
     }
 
-    return src(paths.styles.src, { since: lastRun(styles), sourcemaps: true })
+    return src(paths.styles.src, { sourcemaps: true })
         .pipe(sass({ outputStyle: "nested" }).on("error", sass.logError))
         .pipe(concat("styles.css"))
         .pipe(minifyWrapper(shouldMinify))
@@ -154,7 +159,14 @@ export function html() {
 }
 
 export function serve() {
-    return exec("serve dist -l 3000");
+    return exec(`serve ${paths.html.dest} -l 3000`, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`exec error: ${error}`);
+            return;
+        }
+        log.info(`stdout: ${stdout}`);
+        log.error(`stderr: ${stderr}`);
+    });
 }
 
 function watchFiles() {
@@ -162,13 +174,15 @@ function watchFiles() {
     clean();
     build();
     watch(paths.assets.src, assets);
+    watch(paths.favicon.src, favicon);
     watch(paths.beans.src, beans);
     watch(paths.styles.src, styles);
     watch(paths.scripts.src, scripts);
     watch(paths.html.src, html);
     serve();
+    log.info("Watch tasks running. Press Ctrl+C to exit.");
 }
 export { watchFiles as watch };
 
-const build = series(clean, parallel(assets, beans, scripts, styles, html));
+const build = series(clean, parallel(assets, favicon, beans, scripts, styles, html));
 export default build;
