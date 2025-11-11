@@ -1,13 +1,18 @@
 // config options
 const numberOfParticles = 42;
-const sizeMultiplier = devicePixelRatio || 1;
+const sizeMultiplier = devicePixelRatio > 1 ? devicePixelRatio - 1 : devicePixelRatio;
 
-// color palettes
-//const colors = ["#FF007F", "#8000FF", "#4080FF", "#ff4000", "#18FF92"];
-// for gay bitches
-//const colors = ["#D52D00", "#EF7627", "#FF9A56", "#FFFFFF", "#D162A4", "#B55690", "#A30262"];
 // for vampires
-const colors = ["#8be9fd", "#50fa7b", "#ffb86c", "#ff79c6", "#bd93f9", "#ff5555", "#f1fa8c"];
+export const colors = [
+    "#ffffff",
+    "#8be9fd",
+    "#50fa7b",
+    "#ffb86c",
+    "#ff79c6",
+    "#bd93f9",
+    "#ff5555",
+    "#f1fa8c",
+];
 
 // get canvas and context
 /** @type {HTMLCanvasElement} **/
@@ -15,21 +20,28 @@ const canvas = document.querySelector("canvas.lower");
 /** @type {CanvasRenderingContext2D} **/
 const ctx = canvas.getContext("2d");
 
-export function onResize() {
-    canvas.width = window.innerWidth * 2 * devicePixelRatio;
-    canvas.height = window.innerHeight * 2 * devicePixelRatio;
-    ctx.resetTransform();
-    ctx.scale(2, 2);
-}
-
-// handle window resize
-onResize();
-window.addEventListener("resize", onResize, false);
-
 // generate a random integer between min and max, inclusive. assumes integer inputs
 function randInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
+
+export function onResize() {
+    // get new canvas size in device pixels
+    const widthPx = window.innerWidth * devicePixelRatio;
+    const heightPx = window.innerHeight * devicePixelRatio;
+    // adjust canvas size for displays which don't report devicePixelRatio correctly
+    canvas.width = Math.floor(widthPx * devicePixelRatio);
+    canvas.height = Math.floor(heightPx * devicePixelRatio);
+    // scale context to account for device pixel ratio
+    if (ctx) {
+        ctx.resetTransform();
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
+}
+
+// handle window resize
+window.addEventListener("load", onResize);
+window.addEventListener("resize", onResize);
 
 function setParticleDirection(p, angle_min = 0, angle_max = 360) {
     let angle;
@@ -40,7 +52,7 @@ function setParticleDirection(p, angle_min = 0, angle_max = 360) {
     // generate angle, wrapping if necessary, and offsetting to make 0 = up
     angle = (angle_min + randInt(0, range) - 90) % 360;
     // generate distance
-    const distance = randInt(384, 640) * sizeMultiplier;
+    const distance = randInt(512, 640) * sizeMultiplier;
     return {
         x: p.x + Math.floor(distance * Math.cos((angle * Math.PI) / 180)),
         y: p.y + Math.floor(distance * Math.sin((angle * Math.PI) / 180)),
@@ -103,12 +115,6 @@ export const angleSets = {
 export function fireworks(x, y, direction = "any") {
     render.play();
     animateParticles(x, y, direction);
-}
-
-export function tapHandler(e) {
-    const pointerX = e.clientX || e.touches[0].clientX;
-    const pointerY = e.clientY || e.touches[0].clientY;
-    fireworks(pointerX, pointerY);
 }
 
 export default fireworks;

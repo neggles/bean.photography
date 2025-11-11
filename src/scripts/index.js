@@ -1,5 +1,5 @@
 import beans from "./beans.js";
-import { fireworks, tapHandler } from "./fireworks.js";
+import { colors, fireworks } from "./fireworks.js";
 
 // get special bean
 const special_bean = beans.special_bean;
@@ -7,10 +7,6 @@ const special_bean = beans.special_bean;
 const params = new URLSearchParams(window.location.search);
 // get local storage
 const storage = window.localStorage;
-
-// check if click parameter is present
-const clickParam = params.get("click");
-
 // track last bean so we don't repeat it
 let lastBean = storage.getItem("lastBean");
 // track page load count
@@ -134,6 +130,14 @@ const bean = getBeanImage((img) => {
     beansaver.onResize();
 });
 
+function randColor(exclude = null) {
+    let color;
+    do {
+        color = colors[randInt(0, colors.length - 1)];
+    } while (color === exclude);
+    return color;
+}
+
 // parse speed parameter from URL, defaulting to 1.0 if invalid
 function parseSpeed(searchParams) {
     const raw = searchParams.get("speed");
@@ -142,15 +146,46 @@ function parseSpeed(searchParams) {
 }
 const speedParam = parseSpeed(params);
 
+/**
+ * Apply a color overlay to a canvas context.
+ *
+ * @param {CanvasRenderingContext2D} ctx - The canvas context to colorize.
+ * @param {string} color - The color to apply as an overlay (in CSS format).
+ * @param {number} [alpha=0.6] - The alpha value for the overlay (0.0 to 1.0).
+ */
+function colorizeCanvas(ctx, color, alpha = 0.6) {
+    // skip if color is null, undefined, or white
+    if (color === null || color === undefined || color.toUpperCase() === "#FFFFFF") return;
+
+    // make an offscreen buffer canvas
+    const buffer = new OffscreenCanvas(ctx.canvas.width, ctx.canvas.height);
+    const btx = buffer.getContext("2d");
+    if (!btx) {
+        console.error("Offscreen canvas context not found");
+        return;
+    }
+    // fill it with the tint color
+    btx.fillStyle = color;
+    btx.fillRect(0, 0, buffer.width, buffer.height);
+    // set composite mode to destination-in to keep only the pixels that overlap with the original
+    btx.globalCompositeOperation = "destination-in";
+    // draw the original canvas onto the buffer
+    btx.drawImage(ctx.canvas, 0, 0);
+
+    // draw the colorized buffer back onto the original canvas, with alpha, then restore state
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = "multiply";
+    ctx.drawImage(buffer, 0, 0);
+    ctx.restore();
+}
+
 class DVDScreensaver {
     constructor(parent, canvasId) {
         /** @type {HTMLElement} **/
         this.parent = typeof parent === "string" ? document.querySelector(parent) : parent;
         if (!this.parent) throw new Error("Parent not found");
         this.canvasId = canvasId || "dvd";
-
-        // attach bean image to parent element
-        this.parent.appendChild(bean);
 
         // ensure initial position is within the window bounds
         this.xpos = randInt(1, window.innerWidth - 512 - 1);
@@ -168,6 +203,8 @@ class DVDScreensaver {
 
         // initial direction
         this.dir = { x: randInt(0, 1) === 0 ? -1 : 1, y: randInt(0, 1) === 0 ? -1 : 1 };
+        this.lastEffectDir = null;
+        this.tintColor = "#FFFFFF";
 
         // bind event handlers and call for initial setup
         window.addEventListener("resize", this.onResize.bind(this));
@@ -188,7 +225,7 @@ class DVDScreensaver {
         }
 
         // adjust speed for devicePixelRatio
-        this.speed = speedParam * (devicePixelRatio || 1);
+        this.speed = Math.min(speedParam * devicePixelRatio, 2);
 
         // reinitialize animation
         this.initDVD();
@@ -218,7 +255,10 @@ class DVDScreensaver {
         // set canvas size
         this.canvas.width = this.rect.width;
         this.canvas.height = this.rect.height;
+        this.lastEffectDir = null;
+        this.tintColor = "#FFFFFF";
 
+        // start animation loop
         const animate = () => {
             this.renderDVD();
             this.dvdframe = window.requestAnimationFrame(animate);
@@ -249,31 +289,39 @@ class DVDScreensaver {
 
         // check for left/right bounce
         if (left <= -this.margin) {
+            // bounce off left edge
             this.dir.x = 1;
-            // calculate collision point for fireworks
-            effect.xpos = left;
+            // set effect position
+            effect.xpos = left + this.margin;
             effect.direction = "right";
         } else if (right >= canvas.width + this.margin) {
+            // bounce off right edge
             this.dir.x = -1;
-            // calculate collision point for fireworks
-            effect.xpos = right;
+            // set effect position
+            effect.xpos = right - this.margin;
             effect.direction = "left";
         }
         // check for top/bottom bounce
         if (top <= -this.margin) {
+            // bounce off top edge
             this.dir.y = 1;
-            effect.ypos = top;
+            // set effect position
+            effect.ypos = top + this.margin;
             effect.direction = "down";
         } else if (bottom >= canvas.height + this.margin) {
+            // bounce off bottom edge
             this.dir.y = -1;
-            effect.ypos = bottom;
+            // set effect position
+            effect.ypos = bottom - this.margin;
             effect.direction = "up";
         }
 
-        if (effect.direction !== null) {
+        if (effect.direction !== null && effect.direction !== this.lastEffectDir) {
+            this.lastEffectDir = effect.direction;
             effect.ypos ??= this.ypos + (beanBox.top + beanBox.bottom) / 2;
             effect.xpos ??= this.xpos + (beanBox.left + beanBox.right) / 2;
             fireworks(effect.xpos, effect.ypos, effect.direction);
+            this.tintColor = randColor(this.tintColor);
         }
 
         // check for left/right overshoot and correct position
@@ -289,11 +337,21 @@ class DVDScreensaver {
         this.ypos += this.speed * this.dir.y;
         // draw the bean image
         ctx.drawImage(bean, this.xpos, this.ypos);
+        colorizeCanvas(ctx, this.tintColor);
     }
 }
 
 window.beansaver = new DVDScreensaver("div.screen", "bean");
 
+function tapHandler(e) {
+    const pointerX = e.clientX || e.touches[0].clientX;
+    const pointerY = e.clientY || e.touches[0].clientY;
+    fireworks(pointerX, pointerY);
+}
+
+// check if click parameter is present
+const clickParam = params.get("click");
+// if so, add event listener for taps/clicks to trigger fireworks
 if (clickParam != null) {
     window.addEventListener(tapEvent, tapHandler, false);
 }
