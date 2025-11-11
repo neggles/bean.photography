@@ -9,41 +9,41 @@ const sizeMultiplier = devicePixelRatio || 1;
 // for vampires
 const colors = ["#8be9fd", "#50fa7b", "#ffb86c", "#ff79c6", "#bd93f9", "#ff5555", "#f1fa8c"];
 
-// Determine tap event based on device capabilities
-const tapEvent =
-    "ontouchstart" in window || navigator.msMaxTouchPoints ? "touchstart" : "mousedown";
-
 // get canvas and context
 /** @type {HTMLCanvasElement} **/
 const canvas = document.querySelector("canvas.lower");
 /** @type {CanvasRenderingContext2D} **/
 const ctx = canvas.getContext("2d");
 
-export function setCanvasSize() {
-    canvas.width = window.innerWidth * 2;
-    canvas.height = window.innerHeight * 2;
+export function onResize() {
+    canvas.width = window.innerWidth * 2 * devicePixelRatio;
+    canvas.height = window.innerHeight * 2 * devicePixelRatio;
     ctx.resetTransform();
     ctx.scale(2, 2);
 }
 
 // handle window resize
-setCanvasSize();
-window.addEventListener("resize", setCanvasSize, false);
+onResize();
+window.addEventListener("resize", onResize, false);
+
+// generate a random integer between min and max, inclusive. assumes integer inputs
+function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
 
 function setParticleDirection(p, angle_min = 0, angle_max = 360) {
     let angle;
-    // Handle zero-crossing case (e.g., 270 to 90 wrapping through 0)
-    if (angle_min > angle_max) {
-        // Generate random value in [0, range], then add to min and wrap
-        const range = 360 - angle_min + angle_max;
-        angle = (((angle_min + anime.random(0, range)) % 360) * Math.PI) / 180;
-    } else {
-        angle = (anime.random(angle_min, angle_max) * Math.PI) / 180;
-    }
-    const distance = anime.random(384, 640) * sizeMultiplier;
+    // decrement max by 1 to make range inclusive
+    angle_max -= 1;
+    // handle zero crossing
+    const range = angle_max < angle_min ? 360 - angle_min + angle_max : angle_max - angle_min;
+    // generate angle, wrapping if necessary, and offsetting to make 0 = up
+    angle = (angle_min + randInt(0, range) - 90) % 360;
+    // generate distance
+    const distance = randInt(384, 640) * sizeMultiplier;
     return {
-        x: p.x + distance * Math.cos(angle),
-        y: p.y + distance * Math.sin(angle),
+        x: p.x + Math.floor(distance * Math.cos((angle * Math.PI) / 180)),
+        y: p.y + Math.floor(distance * Math.sin((angle * Math.PI) / 180)),
     };
 }
 
@@ -51,8 +51,8 @@ function createParticle(x, y, angle_min = 0, angle_max = 360) {
     let p = {};
     p.x = x;
     p.y = y;
-    p.color = colors[anime.random(0, colors.length - 1)];
-    p.radius = anime.random(16, 32);
+    p.color = colors[randInt(0, colors.length - 1)];
+    p.radius = randInt(16, 32);
     p.endPos = setParticleDirection(p, angle_min, angle_max);
     p.draw = () => {
         ctx.beginPath();
@@ -79,7 +79,7 @@ function animateParticles(x, y, direction = "any") {
         x: (p) => p.endPos.x,
         y: (p) => p.endPos.y,
         radius: 0.1,
-        duration: anime.random(1500, 2000),
+        duration: randInt(1500, 2000),
         easing: "easeOutExpo",
         update: renderParticle,
     });
@@ -92,18 +92,12 @@ const render = anime({
     },
 });
 
-export function tapHandler(e) {
-    const pointerX = e.clientX || e.touches[0].clientX;
-    const pointerY = e.clientY || e.touches[0].clientY;
-    fireworks(pointerX, pointerY);
-}
-
 export const angleSets = {
     any: [0, 360],
     up: [270, 90], // 180° sweep: up (wraps through 0)
     down: [90, 270], // 180° sweep: down
-    left: [90, 270], // 180° sweep: left
-    right: [270, 90], // 180° sweep: right (wraps through 0)
+    left: [180, 360], // 180° sweep: left
+    right: [0, 180], // 180° sweep: right
 };
 
 export function fireworks(x, y, direction = "any") {
@@ -111,11 +105,10 @@ export function fireworks(x, y, direction = "any") {
     animateParticles(x, y, direction);
 }
 
-// get URL parameters
-const params = new URLSearchParams(window.location.search);
-const clickParam = params.get("click");
-if (clickParam != null) {
-    window.addEventListener(tapEvent, tapHandler, false);
+export function tapHandler(e) {
+    const pointerX = e.clientX || e.touches[0].clientX;
+    const pointerY = e.clientY || e.touches[0].clientY;
+    fireworks(pointerX, pointerY);
 }
 
 export default fireworks;

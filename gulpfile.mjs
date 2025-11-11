@@ -3,7 +3,6 @@ import { deleteAsync } from "del";
 import { dest, lastRun, parallel, series, src, watch } from "gulp";
 import concat from "gulp-concat";
 import cssnano from "gulp-cssnano";
-import rename from "gulp-rename";
 import gulpSass from "gulp-sass";
 import terser from "gulp-terser";
 import log from "gulplog";
@@ -94,6 +93,7 @@ function beanListWriter({ outDir, outFile, exclude = [] }) {
                     + `export const beanDir = ${JSON.stringify(paths.beans.subDir)};\n`
                     + `export const beanFiles = ${JSON.stringify(picked, null, 4)};\n`
                     + `export const beans = beanFiles.map(f => beanDir + '/' + f);\n`
+                    + `beans.special_bean = beanDir + '/beanlet.png';\n`
                     + `export default beans;\n`;
                 fs.writeFileSync(path.join(outDir, outFile), contents, "utf8");
                 log.info(`beanListWriter: wrote ${outDir + outFile} with ${picked.length} entries`);

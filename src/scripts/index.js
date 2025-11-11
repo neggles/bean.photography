@@ -1,13 +1,15 @@
 import beans from "./beans.js";
-import fireworks from "./fireworks.js";
+import { fireworks, tapHandler } from "./fireworks.js";
 
 // get special bean
 const special_bean = beans.special_bean;
-
 // get URL parameters
 const params = new URLSearchParams(window.location.search);
 // get local storage
 const storage = window.localStorage;
+
+// check if click parameter is present
+const clickParam = params.get("click");
 
 // track last bean so we don't repeat it
 let lastBean = storage.getItem("lastBean");
@@ -15,6 +17,10 @@ let lastBean = storage.getItem("lastBean");
 let loadCount = parseInt(storage.getItem("loadCount") || "0", 10);
 loadCount += 1;
 storage.setItem("loadCount", loadCount.toString());
+
+// get tap event based on device capabilities
+const tapEvent =
+    "ontouchstart" in window || navigator.msMaxTouchPoints ? "touchstart" : "mousedown";
 
 // generate a random integer between min and max, inclusive. assumes integer inputs
 function randInt(min, max) {
@@ -264,7 +270,7 @@ class DVDScreensaver {
             effect.direction = "up";
         }
 
-        if (effect.xpos !== null || effect.ypos !== null) {
+        if (effect.direction !== null) {
             effect.ypos ??= this.ypos + (beanBox.top + beanBox.bottom) / 2;
             effect.xpos ??= this.xpos + (beanBox.left + beanBox.right) / 2;
             fireworks(effect.xpos, effect.ypos, effect.direction);
@@ -287,15 +293,7 @@ class DVDScreensaver {
 }
 
 window.beansaver = new DVDScreensaver("div.screen", "bean");
-/*
-const fireworks = new Fireworks("div.screen", "fireworks");
-if (fireworks) {
-    window.fireworks = fireworks;
-    window.addEventListener("click", (e) => {
-        fireworks.updateCoords(e);
-        fireworks.animateParticles(fireworks.pointerX, fireworks.pointerY);
-    });
-} else {
-    console.error("Fireworks initialization failed");
+
+if (clickParam != null) {
+    window.addEventListener(tapEvent, tapHandler, false);
 }
-*/
